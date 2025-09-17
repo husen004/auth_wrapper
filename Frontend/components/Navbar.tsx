@@ -6,7 +6,7 @@ const Navbar: React.FC = () => (
     <div className="container mx-auto flex items-center justify-between py-3 px-4">
       <Link href="/" className="font-bold text-blue-600 text-xl">Auth Wrapper</Link>
       <div className="flex gap-6">
-        <Link href="/" className="hover:text-blue-600">Home</Link>
+        <Link href="/home" className="hover:text-blue-600">Home</Link>
         <Link href="/features" className="hover:text-blue-600">Features</Link>
         <Link href="/docs" className="hover:text-blue-600">Docs</Link>
       </div>
