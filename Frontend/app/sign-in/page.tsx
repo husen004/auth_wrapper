@@ -1,5 +1,6 @@
 import React from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 
 const LoginPage = () => {
   return (
@@ -77,14 +78,14 @@ const LoginPage = () => {
               type="button"
               className="w-full inline-flex justify-center py-2 px-4 border border-gray-300 rounded-md shadow-sm bg-white text-sm font-medium text-gray-500 hover:bg-gray-50"
             >
-              <img width="20" height="10" src="https://img.icons8.com/fluency/48/google-logo.png" alt="google-logo"/>
+              <Image width="20" height="10" src="https://img.icons8.com/fluency/48/google-logo.png" alt="google-logo"/>
               <span className="ml-2">Google</span>
             </button>
             <button
               type="button"
               className="w-full inline-flex justify-center py-2 px-4 border border-gray-300 rounded-md shadow-sm bg-white text-sm font-medium text-gray-500 hover:bg-gray-50"
             >
-              <img width="20" height="10" src="https://img.icons8.com/glyph-neue/64/github.png" alt="github"/>
+              <Image width="20" height="10" src="https://img.icons8.com/glyph-neue/64/github.png" alt="github"/>
               <span className="ml-2">GitHub</span>
             </button>
           </div>
