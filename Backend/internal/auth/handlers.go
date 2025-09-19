@@ -1,281 +1,368 @@
 package auth
 
 import (
-	"crypto/rand"
-	"crypto/sha256"
+	"context"
 	"database/sql"
-	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"strings"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
+	"github.com/golang-jwt/jwt/v4"
 	"golang.org/x/crypto/bcrypt"
 )
 
-// Minimal user representation — adjust fields as needed.
+// User represents a user in the system
 type User struct {
-	ID        int64     `db:"id"`
-	Email     string    `db:"email"`
-	Password  string    `db:"password_hash"`
-	CreatedAt time.Time `db:"created_at"`
-	// add verified bool, roles, etc.
+	ID        string    `json:"id"`
+	Email     string    `json:"email"`
+	Password  string    `json:"-"` // Password is never returned in JSON
+	CreatedAt time.Time `json:"created_at"`
 }
 
-// Dependencies injected to handlers.
-type Handler struct {
-	DB        *sql.DB
-	JWTSecret []byte
-	// Optionally: Refresh token table access, mailer, logger, config
+// UserResponse is what we return from API calls
+type UserResponse struct {
+	ID    string `json:"id"`
+	Email string `json:"email"`
 }
 
-// Request payloads
-type registerReq struct {
+// LoginRequest defines the login request body
+type LoginRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
 }
 
-type loginReq struct {
+// RegisterRequest defines the register request body
+type RegisterRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
 }
 
-type authResp struct {
+// TokenResponse represents the response for login/token requests
+type TokenResponse struct {
 	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token,omitempty"`
+	ExpiresIn    int    `json:"expires_in"`
 }
 
-// Helpers
-
-func hashPassword(pw string) (string, error) {
-	const cost = 12
-	b, err := bcrypt.GenerateFromPassword([]byte(pw), cost)
-	return string(b), err
+// RefreshRequest defines the token refresh request
+type RefreshRequest struct {
+	RefreshToken string `json:"refresh_token"`
 }
 
-func comparePassword(hash, pw string) error {
-	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(pw))
+// Claims represents the JWT claims
+type Claims struct {
+	UserID string `json:"user_id"`
+	jwt.RegisteredClaims
 }
 
-func randomToken(n int) (string, error) {
-	b := make([]byte, n)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
+// Handler handles authentication requests
+type Handler struct {
+	DB           *sql.DB
+	JWTSecret    []byte
+	AccessExpiry time.Duration
+}
+
+// NewHandler creates a new auth handler
+func NewHandler(db *sql.DB) *Handler {
+	jwtSecret := os.Getenv("JWT_SECRET")
+	if jwtSecret == "" {
+		jwtSecret = "your-secret-key-change-in-production" // Default for development
 	}
-	return base64.RawURLEncoding.EncodeToString(b), nil
-}
 
-// Store refresh tokens hashed to allow revocation
-func hashTokenForStorage(token string) string {
-	h := sha256.Sum256([]byte(token))
-	return base64.RawURLEncoding.EncodeToString(h[:])
-}
-
-func (h *Handler) generateAccessToken(userID int64) (string, error) {
-	claims := jwt.MapClaims{
-		"sub": userID,
-		"exp": time.Now().Add(15 * time.Minute).Unix(),
-		"iat": time.Now().Unix(),
+	return &Handler{
+		DB:           db,
+		JWTSecret:    []byte(jwtSecret),
+		AccessExpiry: time.Hour * 24, // 24 hours
 	}
-	t := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return t.SignedString(h.JWTSecret)
 }
 
-// Handlers
-
-// RegisterHandler: validate, check unique email, hash pw, insert user, send verification email (placeholder)
-func (h *Handler) RegisterHandler(w http.ResponseWriter, r *http.Request) {
-	var req registerReq
+// Register handles user registration
+func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
+	var req RegisterRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid payload", http.StatusBadRequest)
-		return
-	}
-	// Basic validation (expand in real app)
-	if req.Email == "" || req.Password == "" || len(req.Password) < 8 {
-		http.Error(w, "invalid input", http.StatusBadRequest)
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
-	// Normalize email lower-case, trim (omitted)
+	// Validate request
+	if req.Email == "" || req.Password == "" {
+		http.Error(w, "Email and password are required", http.StatusBadRequest)
+		return
+	}
 
-	// Check uniqueness
-	var exists int
-	err := h.DB.QueryRowContext(r.Context(), "SELECT 1 FROM users WHERE email = $1", req.Email).Scan(&exists)
-	if err != nil && err != sql.ErrNoRows {
-		// if row exists Scan will nil; but QueryRow.Scan returns ErrNoRows when not exists.
-		// Use a safer approach:
-		row := h.DB.QueryRowContext(r.Context(), "SELECT id FROM users WHERE email = $1", req.Email)
-		var id int64
-		if err2 := row.Scan(&id); err2 == nil {
-			http.Error(w, "email already in use", http.StatusConflict)
-			return
-		} else if err2 != sql.ErrNoRows {
-			http.Error(w, "server error", http.StatusInternalServerError)
+	if len(req.Password) < 6 {
+		http.Error(w, "Password must be at least 6 characters long", http.StatusBadRequest)
+		return
+	}
+
+	// Check if user exists
+	var exists bool
+	err := h.DB.QueryRow("SELECT EXISTS(SELECT 1 FROM users WHERE email = ?)", req.Email).Scan(&exists)
+	if err != nil {
+		log.Printf("Database error checking user existence: %v", err)
+		http.Error(w, "Database error", http.StatusInternalServerError)
+		return
+	}
+
+	if exists {
+		http.Error(w, "User already exists", http.StatusConflict)
+		return
+	}
+
+	// Hash the password with bcrypt
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	if err != nil {
+		log.Printf("Password hashing error: %v", err)
+		http.Error(w, "Could not hash password", http.StatusInternalServerError)
+		return
+	}
+
+	// Insert user letting DB generate UUID
+	_, err = h.DB.Exec(
+		"INSERT INTO users (email, password, created_at) VALUES (?, ?, ?)",
+		req.Email, string(hashedPassword), time.Now(),
+	)
+	if err != nil {
+		log.Printf("User creation error: %v", err)
+		http.Error(w, "Could not create user", http.StatusInternalServerError)
+		return
+	}
+
+	// Retrieve generated ID
+	var id string
+	if err := h.DB.QueryRow("SELECT id FROM users WHERE email = ?", req.Email).Scan(&id); err != nil {
+		log.Printf("Error retrieving user ID: %v", err)
+		http.Error(w, "Could not get user ID", http.StatusInternalServerError)
+		return
+	}
+
+	// Return success response
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"id":      id,
+		"email":   req.Email,
+		"message": "User registered successfully",
+	})
+}
+
+// Login handles user login
+func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
+	var req LoginRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Validate request
+	if req.Email == "" || req.Password == "" {
+		http.Error(w, "Email and password are required", http.StatusBadRequest)
+		return
+	}
+
+	// Get user from database
+	var user User
+	var hashedPassword string
+	err := h.DB.QueryRow("SELECT id, email, password FROM users WHERE email = ?", req.Email).
+		Scan(&user.ID, &user.Email, &hashedPassword)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			http.Error(w, "Invalid credentials", http.StatusUnauthorized)
 			return
 		}
-	}
-
-	pwHash, err := hashPassword(req.Password)
-	if err != nil {
-		http.Error(w, "could not hash password", http.StatusInternalServerError)
+		log.Printf("Database error retrieving user: %v", err)
+		http.Error(w, "Database error", http.StatusInternalServerError)
 		return
 	}
 
-	var newID int64
-	err = h.DB.QueryRowContext(r.Context(),
-		`INSERT INTO users (email, password_hash, created_at) VALUES ($1,$2,$3) RETURNING id`,
-		req.Email, pwHash, time.Now()).Scan(&newID)
-	if err != nil {
-		http.Error(w, "could not create user", http.StatusInternalServerError)
-		return
-	}
-
-	// TODO: create email verification token and send email
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]any{"id": newID})
-}
-
-// LoginHandler: verify credentials, issue access + refresh tokens, persist refresh token hash
-func (h *Handler) LoginHandler(w http.ResponseWriter, r *http.Request) {
-	var req loginReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid payload", http.StatusBadRequest)
-		return
-	}
-	if req.Email == "" || req.Password == "" {
-		http.Error(w, "missing credentials", http.StatusBadRequest)
-		return
-	}
-
-	var user User
-	err := h.DB.QueryRowContext(r.Context(), "SELECT id, password_hash FROM users WHERE email = $1", req.Email).
-		Scan(&user.ID, &user.Password)
-	if err != nil {
-		// Do not reveal whether email exists
-		http.Error(w, "invalid credentials", http.StatusUnauthorized)
-		return
-	}
-
-	if err := comparePassword(user.Password, req.Password); err != nil {
-		http.Error(w, "invalid credentials", http.StatusUnauthorized)
+	// Compare passwords
+	if err := bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(req.Password)); err != nil {
+		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
 		return
 	}
 
 	// Generate access token
 	accessToken, err := h.generateAccessToken(user.ID)
 	if err != nil {
-		http.Error(w, "could not generate token", http.StatusInternalServerError)
+		log.Printf("Access token generation error: %v", err)
+		http.Error(w, "Could not generate access token", http.StatusInternalServerError)
 		return
 	}
 
 	// Generate refresh token
-	refresh, err := randomToken(32)
+	refreshToken, err := h.generateRefreshToken(user.ID)
 	if err != nil {
-		http.Error(w, "could not generate refresh token", http.StatusInternalServerError)
-		return
-	}
-	hashedRefresh := hashTokenForStorage(refresh)
-
-	// Store hashed refresh token with expiry (example table: refresh_tokens)
-	_, err = h.DB.ExecContext(r.Context(),
-		`INSERT INTO refresh_tokens (user_id, token_hash, expires_at, created_at) VALUES ($1,$2,$3,$4)`,
-		user.ID, hashedRefresh, time.Now().Add(30*24*time.Hour), time.Now())
-	if err != nil {
-		http.Error(w, "could not store refresh token", http.StatusInternalServerError)
+		log.Printf("Refresh token generation error: %v", err)
+		http.Error(w, "Could not generate refresh token", http.StatusInternalServerError)
 		return
 	}
 
-	// Optionally set secure HttpOnly cookie instead of returning token in body:
-	// http.SetCookie(w, &http.Cookie{ Name: "refresh_token", Value: refresh, HttpOnly: true, Secure:true, Path:"/", SameSite:http.SameSiteLaxMode, Expires:... })
-
-	resp := authResp{AccessToken: accessToken, RefreshToken: refresh}
-	json.NewEncoder(w).Encode(resp)
-}
-
-// RefreshHandler: accept refresh token, validate against DB, issue new access token (and rotated refresh token)
-func (h *Handler) RefreshHandler(w http.ResponseWriter, r *http.Request) {
-	// Token may come from cookie or body
-	var body struct {
-		RefreshToken string `json:"refresh_token"`
-	}
-	_ = json.NewDecoder(r.Body).Decode(&body)
-	token := body.RefreshToken
-	if token == "" {
-		// check cookie (if used)
-		c, err := r.Cookie("refresh_token")
-		if err == nil {
-			token = c.Value
-		}
-	}
-	if token == "" {
-		http.Error(w, "no token provided", http.StatusBadRequest)
-		return
-	}
-
-	hashed := hashTokenForStorage(token)
-	var userID int64
-	var expires time.Time
-	err := h.DB.QueryRowContext(r.Context(),
-		"SELECT user_id, expires_at FROM refresh_tokens WHERE token_hash = $1", hashed).
-		Scan(&userID, &expires)
-	if err != nil {
-		http.Error(w, "invalid token", http.StatusUnauthorized)
-		return
-	}
-	if time.Now().After(expires) {
-		http.Error(w, "token expired", http.StatusUnauthorized)
-		return
-	}
-
-	accessToken, err := h.generateAccessToken(userID)
-	if err != nil {
-		http.Error(w, "could not generate access token", http.StatusInternalServerError)
-		return
-	}
-
-	// Optionally rotate refresh token: delete old entry, insert new hashed token, return new token
-	json.NewEncoder(w).Encode(map[string]string{"access_token": accessToken})
-}
-
-// Simple middleware example to protect endpoints
-func (h *Handler) RequireAuth(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		auth := r.Header.Get("Authorization")
-		if auth == "" {
-			http.Error(w, "missing authorization header", http.StatusUnauthorized)
-			return
-		}
-		// Expect "Bearer <token>"
-		var tokenStr string
-		_, err := fmt.Fscanf(strings.NewReader(auth), "Bearer %s", &tokenStr)
-		if err != nil || tokenStr == "" {
-			http.Error(w, "invalid auth header", http.StatusUnauthorized)
-			return
-		}
-		token, err := jwt.Parse(tokenStr, func(t *jwt.Token) (any, error) {
-			if t.Method.Alg() != jwt.SigningMethodHS256.Alg() {
-				return nil, errors.New("unexpected signing method")
-			}
-			return h.JWTSecret, nil
-		})
-		if err != nil || !token.Valid {
-			http.Error(w, "invalid token", http.StatusUnauthorized)
-			return
-		}
-		// set user in context if needed
-		next.ServeHTTP(w, r)
+	// Return tokens
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(TokenResponse{
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
+		ExpiresIn:    int(h.AccessExpiry.Seconds()),
 	})
 }
 
-// NewHandler helper to build handler with env/config
-func NewHandler(db *sql.DB) *Handler {
-	secret := os.Getenv("JWT_SECRET")
-	if secret == "" {
-		secret = "dev-secret" // avoid in production
+// RefreshToken handles token refresh
+func (h *Handler) RefreshToken(w http.ResponseWriter, r *http.Request) {
+	var req RefreshRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
 	}
-	return &Handler{DB: db, JWTSecret: []byte(secret)}
+
+	// Validate request
+	if req.RefreshToken == "" {
+		http.Error(w, "Refresh token is required", http.StatusBadRequest)
+		return
+	}
+
+	// Parse the refresh token
+	token, err := jwt.ParseWithClaims(req.RefreshToken, &Claims{}, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return h.JWTSecret, nil
+	})
+
+	if err != nil || !token.Valid {
+		http.Error(w, "Invalid refresh token", http.StatusUnauthorized)
+		return
+	}
+
+	claims, ok := token.Claims.(*Claims)
+	if !ok {
+		http.Error(w, "Invalid token claims", http.StatusUnauthorized)
+		return
+	}
+
+	// Check if user exists
+	var exists bool
+	err = h.DB.QueryRow("SELECT EXISTS(SELECT 1 FROM users WHERE id = ?)", claims.UserID).Scan(&exists)
+	if err != nil || !exists {
+		http.Error(w, "User not found", http.StatusUnauthorized)
+		return
+	}
+
+	// Generate new access token
+	accessToken, err := h.generateAccessToken(claims.UserID)
+	if err != nil {
+		http.Error(w, "Could not generate access token", http.StatusInternalServerError)
+		return
+	}
+
+	// Return new access token
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(TokenResponse{
+		AccessToken: accessToken,
+		ExpiresIn:   int(h.AccessExpiry.Seconds()),
+	})
+}
+
+// Me returns the current user info
+func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
+	// Get user ID from context (set by AuthMiddleware)
+	userID, ok := r.Context().Value("userID").(string)
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Get user from database
+	var user UserResponse
+	err := h.DB.QueryRow("SELECT id, email FROM users WHERE id = ?", userID).
+		Scan(&user.ID, &user.Email)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			http.Error(w, "User not found", http.StatusNotFound)
+			return
+		}
+		log.Printf("Database error retrieving user info: %v", err)
+		http.Error(w, "Database error", http.StatusInternalServerError)
+		return
+	}
+
+	// Return user info
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(user)
+}
+
+// AuthMiddleware verifies the JWT token and sets user ID in context
+func (h *Handler) AuthMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Get the Authorization header
+		authHeader := r.Header.Get("Authorization")
+		if authHeader == "" {
+			http.Error(w, "Authorization header required", http.StatusUnauthorized)
+			return
+		}
+
+		// Check if it's a Bearer token
+		parts := strings.Split(authHeader, " ")
+		if len(parts) != 2 || parts[0] != "Bearer" {
+			http.Error(w, "Authorization header format must be Bearer {token}", http.StatusUnauthorized)
+			return
+		}
+
+		// Parse the token
+		tokenStr := parts[1]
+		claims := &Claims{}
+		token, err := jwt.ParseWithClaims(tokenStr, claims, func(token *jwt.Token) (interface{}, error) {
+			// Validate signing method
+			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+			}
+			return h.JWTSecret, nil
+		})
+
+		// Check for token validity
+		if err != nil || !token.Valid {
+			http.Error(w, "Invalid token", http.StatusUnauthorized)
+			return
+		}
+
+		// Set user ID in request context
+		ctx := r.Context()
+		ctx = context.WithValue(ctx, "userID", claims.UserID)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// Helper function to generate JWT access token
+func (h *Handler) generateAccessToken(userID string) (string, error) {
+	expirationTime := time.Now().Add(h.AccessExpiry)
+	claims := &Claims{
+		UserID: userID,
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject:   userID,
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			ExpiresAt: jwt.NewNumericDate(expirationTime),
+		},
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString(h.JWTSecret)
+}
+
+// Helper function to generate refresh token (longer lived)
+func (h *Handler) generateRefreshToken(userID string) (string, error) {
+	expirationTime := time.Now().Add(time.Hour * 24 * 30) // 30 days
+	claims := &Claims{
+		UserID: userID,
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject:   userID,
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			ExpiresAt: jwt.NewNumericDate(expirationTime),
+		},
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString(h.JWTSecret)
 }
