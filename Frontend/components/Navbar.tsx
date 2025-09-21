@@ -12,7 +12,7 @@ const Navbar: React.FC = () => (
       </div>
       <div className="flex gap-2">
         <Link href="/sign-in" className="px-4 py-2 rounded border border-blue-600 text-blue-600 hover:bg-blue-50">Login</Link>
-        <Link href="/sign-out" className="px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700">Register</Link>
+        <Link href="/sign-up" className="px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700">Register</Link>
       </div>
     </div>
   </nav>
