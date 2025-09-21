@@ -1,120 +1,191 @@
 package main
 
 import (
-	"database/sql"
+	"encoding/json"
 	"log"
 	"net/http"
 	"os"
+	"strings"
+	"time"
 
-	"backend/internal/auth"
-
-	_ "github.com/go-sql-driver/mysql"
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/joho/godotenv"
+	"golang.org/x/crypto/bcrypt"
 )
 
-// CORS middleware to allow requests from frontend
-func corsMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Set CORS headers
-		w.Header().Set("Access-Control-Allow-Origin", "http://localhost:3000")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, DELETE")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-		w.Header().Set("Access-Control-Allow-Credentials", "true")
+var jwtSecret []byte
+var refreshSecret []byte
 
-		// Handle preflight requests
-		if r.Method == "OPTIONS" {
-			w.WriteHeader(http.StatusOK)
+// Fake user storage (replace with DB in real app)
+var users = map[string]string{} // username -> hashed password
+
+// Structs
+type Credentials struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+type TokenResponse struct {
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+}
+
+// Utility: generate access & refresh tokens
+func GenerateTokens(username string) (string, string, error) {
+	// Access token (short-lived)
+	accessClaims := jwt.MapClaims{
+		"username": username,
+		"exp":      time.Now().Add(15 * time.Minute).Unix(),
+		"iat":      time.Now().Unix(),
+	}
+	accessToken := jwt.NewWithClaims(jwt.SigningMethodHS256, accessClaims)
+	accessStr, err := accessToken.SignedString(jwtSecret)
+	if err != nil {
+		return "", "", err
+	}
+
+	// Refresh token (longer-lived)
+	refreshClaims := jwt.MapClaims{
+		"username": username,
+		"exp":      time.Now().Add(24 * time.Hour).Unix(),
+	}
+	refreshToken := jwt.NewWithClaims(jwt.SigningMethodHS256, refreshClaims)
+	refreshStr, err := refreshToken.SignedString(refreshSecret)
+	if err != nil {
+		return "", "", err
+	}
+
+	return accessStr, refreshStr, nil
+}
+
+// Middleware to protect routes
+func AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		authHeader := r.Header.Get("Authorization")
+		if authHeader == "" {
+			http.Error(w, "Missing Authorization header", http.StatusUnauthorized)
 			return
 		}
 
-		// Pass to next handler
+		parts := strings.Split(authHeader, " ")
+		if len(parts) != 2 || parts[0] != "Bearer" {
+			http.Error(w, "Invalid Authorization format", http.StatusUnauthorized)
+			return
+		}
+
+		tokenStr := parts[1]
+		claims := jwt.MapClaims{}
+		token, err := jwt.ParseWithClaims(tokenStr, claims, func(token *jwt.Token) (interface{}, error) {
+			return jwtSecret, nil
+		})
+		if err != nil || !token.Valid {
+			http.Error(w, "Invalid or expired token", http.StatusUnauthorized)
+			return
+		}
+
+		// Attach username to context
+		username := claims["username"].(string)
+		r.Header.Set("X-User", username)
+
 		next.ServeHTTP(w, r)
-	})
+	}
 }
 
-func main() {
-	// Get database configuration from environment variables
-	dbUser := os.Getenv("DB_USER")
-	if dbUser == "" {
-		dbUser = "root" // Default username
+// Handlers
+
+func RegisterHandler(w http.ResponseWriter, r *http.Request) {
+	var creds Credentials
+	if err := json.NewDecoder(r.Body).Decode(&creds); err != nil {
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
 	}
 
-	dbPass := os.Getenv("DB_PASS")
-	if dbPass == "" {
-		dbPass = "" // No password by default (change for production)
+	if _, exists := users[creds.Username]; exists {
+		http.Error(w, "User already exists", http.StatusBadRequest)
+		return
 	}
 
-	dbName := os.Getenv("DB_NAME")
-	if dbName == "" {
-		dbName = "auth_wrapper" // Default database name
+	hashed, _ := bcrypt.GenerateFromPassword([]byte(creds.Password), bcrypt.DefaultCost)
+	users[creds.Username] = string(hashed)
+
+	w.WriteHeader(http.StatusCreated)
+	w.Write([]byte("User registered successfully"))
+}
+
+func LoginHandler(w http.ResponseWriter, r *http.Request) {
+	var creds Credentials
+	if err := json.NewDecoder(r.Body).Decode(&creds); err != nil {
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
 	}
 
-	dbHost := os.Getenv("DB_HOST")
-	if dbHost == "" {
-		dbHost = "localhost" // Default host
+	storedPwd, ok := users[creds.Username]
+	if !ok || bcrypt.CompareHashAndPassword([]byte(storedPwd), []byte(creds.Password)) != nil {
+		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
+		return
 	}
 
-	dbPort := os.Getenv("DB_PORT")
-	if dbPort == "" {
-		dbPort = "3306" // Default MySQL port
-	}
-
-	// Build connection string
-	dsn := dbUser + ":" + dbPass + "@tcp(" + dbHost + ":" + dbPort + ")/" + dbName + "?parseTime=true"
-
-	// Connect to database
-	db, err := sql.Open("mysql", dsn)
+	access, refresh, err := GenerateTokens(creds.Username)
 	if err != nil {
-		log.Fatal("Failed to connect to database:", err)
-	}
-	defer db.Close()
-
-	// Test connection
-	if err := db.Ping(); err != nil {
-		log.Fatal("Database connection failed:", err)
+		http.Error(w, "Token generation failed", http.StatusInternalServerError)
+		return
 	}
 
-	log.Println("Connected to database successfully")
+	json.NewEncoder(w).Encode(TokenResponse{AccessToken: access, RefreshToken: refresh})
+}
 
-	// Create auth handler
-	authHandler := auth.NewHandler(db)
+func RefreshHandler(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		RefreshToken string `json:"refresh_token"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
 
-	// Create a mux for routing
-	mux := http.NewServeMux()
-
-	// Auth endpoints
-	mux.HandleFunc("/api/auth/register", authHandler.Register)
-	mux.HandleFunc("/api/auth/login", authHandler.Login)
-	mux.HandleFunc("/api/auth/refresh", authHandler.RefreshToken)
-
-	// Protected routes
-	mux.Handle("/api/auth/me", authHandler.AuthMiddleware(http.HandlerFunc(authHandler.Me)))
-
-	// Health check endpoint
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status": "healthy"}`))
+	claims := jwt.MapClaims{}
+	token, err := jwt.ParseWithClaims(body.RefreshToken, claims, func(token *jwt.Token) (interface{}, error) {
+		return refreshSecret, nil
 	})
-
-	// Apply CORS middleware to all routes
-	handler := corsMiddleware(mux)
-
-	// Get server port from environment
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
+	if err != nil || !token.Valid {
+		http.Error(w, "Invalid refresh token", http.StatusUnauthorized)
+		return
 	}
 
-	// Start server
-	log.Printf("Server starting on port %s", port)
-	log.Printf("Available endpoints:")
-	log.Printf("  POST /api/auth/register - User registration")
-	log.Printf("  POST /api/auth/login - User login")
-	log.Printf("  POST /api/auth/refresh - Token refresh")
-	log.Printf("  GET  /api/auth/me - Get current user info (protected)")
-	log.Printf("  GET  /health - Health check")
-
-	if err := http.ListenAndServe(":"+port, handler); err != nil {
-		log.Fatal("Server failed to start:", err)
+	username := claims["username"].(string)
+	access, refresh, err := GenerateTokens(username)
+	if err != nil {
+		http.Error(w, "Token generation failed", http.StatusInternalServerError)
+		return
 	}
+
+	json.NewEncoder(w).Encode(TokenResponse{AccessToken: access, RefreshToken: refresh})
+}
+
+func MeHandler(w http.ResponseWriter, r *http.Request) {
+	username := r.Header.Get("X-User")
+	resp := map[string]string{"username": username}
+	json.NewEncoder(w).Encode(resp)
+}
+
+// Main
+func main() {
+	if err := godotenv.Load(); err != nil {
+		log.Println("No .env file found, using system env vars")
+	}
+
+	jwtSecret = []byte(os.Getenv("JWT_SECRET"))
+	refreshSecret = []byte(os.Getenv("REFRESH_SECRET"))
+
+	if len(jwtSecret) == 0 || len(refreshSecret) == 0 {
+		log.Fatal("JWT_SECRET and REFRESH_SECRET must be set")
+	}
+
+	http.HandleFunc("/api/auth/register", RegisterHandler)
+	http.HandleFunc("/api/auth/login", LoginHandler)
+	http.HandleFunc("/api/auth/refresh", RefreshHandler)
+	http.HandleFunc("/api/auth/me", AuthMiddleware(MeHandler))
+
+	log.Println("Server running on :8080")
+	log.Fatal(http.ListenAndServe(":8080", nil))
 }
