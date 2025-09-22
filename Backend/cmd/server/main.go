@@ -50,17 +50,47 @@ func initDB() error {
 	}
 
 	password := os.Getenv("DB_PASSWORD")
+
+	// First connect to default 'postgres' database
+	connStr := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=postgres sslmode=disable",
+		host, port, user, password)
+
+	tempDB, err := sql.Open("postgres", connStr)
+	if err != nil {
+		return fmt.Errorf("failed to connect to postgres database: %v", err)
+	}
+	defer tempDB.Close()
+
+	// Test connection to postgres database
+	if err = tempDB.Ping(); err != nil {
+		return fmt.Errorf("failed to ping postgres database: %v", err)
+	}
+
+	log.Println("Connected to postgres database")
+
+	// Create auth_wrapper database if it doesn't exist
+	_, err = tempDB.Exec("CREATE DATABASE auth_wrapper")
+	if err != nil {
+		// If database already exists, postgres will return an error
+		// We can ignore this specific error
+		if !strings.Contains(err.Error(), "already exists") {
+			return fmt.Errorf("failed to create database: %v", err)
+		}
+		log.Println("Database auth_wrapper already exists")
+	} else {
+		log.Println("Database auth_wrapper created successfully")
+	}
+
+	// Now connect to the actual auth_wrapper database
 	dbname := os.Getenv("DB_NAME")
 	if dbname == "" {
 		dbname = "auth_wrapper"
 	}
 
-	// Build connection string
-	connStr := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
+	// Connect to the auth_wrapper database
+	connStr = fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
 		host, port, user, password, dbname)
 
-	// Open connection
-	var err error
 	db, err = sql.Open("postgres", connStr)
 	if err != nil {
 		return err

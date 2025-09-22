@@ -1,6 +1,6 @@
-CREATE DATABASE auth_wrapper;
+CREATE DATABASE users;
 
-USE auth_wrapper;
+USE users;
 
 CREATE TABLE users (
     id CHAR(36) PRIMARY KEY NOT NULL DEFAULT (UUID()),
