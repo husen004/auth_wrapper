@@ -23,6 +23,10 @@ const RegisterPage = () => {
     setErrors({});
     setGeneralError(null);
 
+    if(password != confirmPassword) {
+      throw new Error("Passwords do not match");
+    }
+
     try {
       // Validate form data with Zod
       registerSchema.parse({
@@ -44,10 +48,9 @@ const RegisterPage = () => {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({ 
-            username: email,
-            password,
-            firstName,
-            lastName
+            email: email,  // Change from username to email if that's what backend expects
+            password: password,
+            // Remove firstName/lastName if backend doesn't support them
           }),
         });
 
@@ -57,7 +60,7 @@ const RegisterPage = () => {
         }
 
         // Redirect to login page with success message
-        router.push('/sign-in?registered=true');
+        router.push('/profile');
       } catch (error) {
         setGeneralError(error instanceof Error ? error.message : 'An error occurred during registration');
       } finally {
@@ -67,7 +70,7 @@ const RegisterPage = () => {
       if (error instanceof ZodError) {
         // Convert Zod errors to a more usable format
         const formattedErrors: Partial<Record<keyof RegisterFormValues, string>> = {};
-        error.errors.forEach((err) => {
+        error.issues.forEach((err) => {
           if (err.path) {
             formattedErrors[err.path[0] as keyof RegisterFormValues] = err.message;
           }

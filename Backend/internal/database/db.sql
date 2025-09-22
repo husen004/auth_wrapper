@@ -1,3 +1,7 @@
+CREATE DATABASE auth_wrapper;
+
+USE auth_wrapper;
+
 CREATE TABLE users (
     id CHAR(36) PRIMARY KEY NOT NULL DEFAULT (UUID()),
     email VARCHAR(255) UNIQUE NOT NULL,

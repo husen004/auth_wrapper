@@ -1,7 +1,9 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -10,14 +12,13 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/joho/godotenv"
+	_ "github.com/lib/pq" // PostgreSQL driver
 	"golang.org/x/crypto/bcrypt"
 )
 
 var jwtSecret []byte
 var refreshSecret []byte
-
-// Fake user storage (replace with DB in real app)
-var users = map[string]string{} // username -> hashed password
+var db *sql.DB
 
 // Structs
 type Credentials struct {
@@ -28,6 +29,75 @@ type Credentials struct {
 type TokenResponse struct {
 	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token"`
+}
+
+// Database setup
+func initDB() error {
+	// Get PostgreSQL connection details from environment variables
+	host := os.Getenv("DB_HOST")
+	if host == "" {
+		host = "localhost"
+	}
+
+	port := os.Getenv("DB_PORT")
+	if port == "" {
+		port = "5432"
+	}
+
+	user := os.Getenv("DB_USER")
+	if user == "" {
+		user = "postgres"
+	}
+
+	password := os.Getenv("DB_PASSWORD")
+	dbname := os.Getenv("DB_NAME")
+	if dbname == "" {
+		dbname = "auth_wrapper"
+	}
+
+	// Build connection string
+	connStr := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
+		host, port, user, password, dbname)
+
+	// Open connection
+	var err error
+	db, err = sql.Open("postgres", connStr)
+	if err != nil {
+		return err
+	}
+
+	// Test connection
+	err = db.Ping()
+	if err != nil {
+		return err
+	}
+
+	// Create users table if it doesn't exist
+	_, err = db.Exec(`
+        CREATE TABLE IF NOT EXISTS users (
+            id SERIAL PRIMARY KEY,
+            username VARCHAR(255) UNIQUE NOT NULL,
+            password VARCHAR(255) NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    `)
+	return err
+}
+
+// CORS middleware
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "http://localhost:3000")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
 }
 
 // Utility: generate access & refresh tokens
@@ -100,13 +170,34 @@ func RegisterHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, exists := users[creds.Username]; exists {
+	// Check if user exists
+	var exists bool
+	err := db.QueryRow("SELECT EXISTS(SELECT 1 FROM users WHERE username = $1)", creds.Username).Scan(&exists)
+	if err != nil {
+		log.Printf("Database error checking user: %v", err)
+		http.Error(w, "Database error", http.StatusInternalServerError)
+		return
+	}
+
+	if exists {
 		http.Error(w, "User already exists", http.StatusBadRequest)
 		return
 	}
 
-	hashed, _ := bcrypt.GenerateFromPassword([]byte(creds.Password), bcrypt.DefaultCost)
-	users[creds.Username] = string(hashed)
+	// Hash password and create user
+	hashed, err := bcrypt.GenerateFromPassword([]byte(creds.Password), bcrypt.DefaultCost)
+	if err != nil {
+		log.Printf("Password hashing error: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	_, err = db.Exec("INSERT INTO users (username, password) VALUES ($1, $2)", creds.Username, string(hashed))
+	if err != nil {
+		log.Printf("Database error creating user: %v", err)
+		http.Error(w, "Database error", http.StatusInternalServerError)
+		return
+	}
 
 	w.WriteHeader(http.StatusCreated)
 	w.Write([]byte("User registered successfully"))
@@ -119,12 +210,26 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	storedPwd, ok := users[creds.Username]
-	if !ok || bcrypt.CompareHashAndPassword([]byte(storedPwd), []byte(creds.Password)) != nil {
+	// Get user from database
+	var storedPwd string
+	err := db.QueryRow("SELECT password FROM users WHERE username = $1", creds.Username).Scan(&storedPwd)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			http.Error(w, "Invalid credentials", http.StatusUnauthorized)
+			return
+		}
+		log.Printf("Database error during login: %v", err)
+		http.Error(w, "Database error", http.StatusInternalServerError)
+		return
+	}
+
+	// Verify password
+	if bcrypt.CompareHashAndPassword([]byte(storedPwd), []byte(creds.Password)) != nil {
 		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
 		return
 	}
 
+	// Generate tokens
 	access, refresh, err := GenerateTokens(creds.Username)
 	if err != nil {
 		http.Error(w, "Token generation failed", http.StatusInternalServerError)
@@ -153,6 +258,15 @@ func RefreshHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	username := claims["username"].(string)
+
+	// Verify user exists in database
+	var exists bool
+	err = db.QueryRow("SELECT EXISTS(SELECT 1 FROM users WHERE username = $1)", username).Scan(&exists)
+	if err != nil || !exists {
+		http.Error(w, "User not found", http.StatusUnauthorized)
+		return
+	}
+
 	access, refresh, err := GenerateTokens(username)
 	if err != nil {
 		http.Error(w, "Token generation failed", http.StatusInternalServerError)
@@ -164,7 +278,24 @@ func RefreshHandler(w http.ResponseWriter, r *http.Request) {
 
 func MeHandler(w http.ResponseWriter, r *http.Request) {
 	username := r.Header.Get("X-User")
-	resp := map[string]string{"username": username}
+
+	// Get user details from database
+	var id int
+	err := db.QueryRow("SELECT id FROM users WHERE username = $1", username).Scan(&id)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			http.Error(w, "User not found", http.StatusNotFound)
+			return
+		}
+		log.Printf("Database error fetching user: %v", err)
+		http.Error(w, "Database error", http.StatusInternalServerError)
+		return
+	}
+
+	resp := map[string]interface{}{
+		"id":       id,
+		"username": username,
+	}
 	json.NewEncoder(w).Encode(resp)
 }
 
@@ -174,6 +305,7 @@ func main() {
 		log.Println("No .env file found, using system env vars")
 	}
 
+	// JWT secrets
 	jwtSecret = []byte(os.Getenv("JWT_SECRET"))
 	refreshSecret = []byte(os.Getenv("REFRESH_SECRET"))
 
@@ -181,11 +313,28 @@ func main() {
 		log.Fatal("JWT_SECRET and REFRESH_SECRET must be set")
 	}
 
-	http.HandleFunc("/api/auth/register", RegisterHandler)
-	http.HandleFunc("/api/auth/login", LoginHandler)
-	http.HandleFunc("/api/auth/refresh", RefreshHandler)
-	http.HandleFunc("/api/auth/me", AuthMiddleware(MeHandler))
+	// Initialize database
+	log.Println("Connecting to PostgreSQL...")
+	if err := initDB(); err != nil {
+		log.Fatalf("Failed to connect to database: %v", err)
+	}
+	log.Println("Connected to PostgreSQL successfully!")
+	defer db.Close()
+
+	// Set up HTTP server
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/auth/register", RegisterHandler)
+	mux.HandleFunc("/api/auth/login", LoginHandler)
+	mux.HandleFunc("/api/auth/refresh", RefreshHandler)
+	mux.HandleFunc("/api/auth/me", AuthMiddleware(MeHandler))
+
+	// Add CORS middleware
+	handler := corsMiddleware(http.Handler(mux))
 
 	log.Println("Server running on :8080")
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+	log.Fatal(http.ListenAndServe(":"+port, handler))
 }
