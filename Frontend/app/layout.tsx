@@ -31,7 +31,7 @@ export default function RootLayout({
       >
         <div className="flex flex-col bg-slate-50">
           <Navbar />
-          <main className="min-h-[100vh] flex-1 container mx-auto px-4 py-8">{children}</main>
+          <main className="min-h-[100vh] flex-1 container mx-auto">{children}</main>
           <footer className="bg-white border-t py-4 text-center text-gray-500">
             © {new Date().getFullYear()} Auth Wrapper. All rights reserved.
           </footer>
