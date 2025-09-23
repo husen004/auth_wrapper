@@ -37,8 +37,17 @@ const LoginPage = () => {
         });
 
         if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.message || 'Login failed');
+          const contentType = response.headers.get('content-type');
+          let errorMessage;
+          
+          if (contentType && contentType.includes('application/json')) {
+            const errorData = await response.json();
+            errorMessage = errorData.message || 'Login failed';
+          } else {
+            errorMessage = await response.text();
+          }
+          
+          throw new Error(errorMessage);
         }
 
         const data = await response.json();
@@ -48,7 +57,7 @@ const LoginPage = () => {
         localStorage.setItem('refresh_token', data.refresh_token);
         
         // Redirect to dashboard or home
-        router.push('/dashboard');
+        router.push('/profile');
       } catch (error) {
         setGeneralError(error instanceof Error ? error.message : 'An error occurred during login');
       } finally {
@@ -58,7 +67,7 @@ const LoginPage = () => {
       if (error instanceof ZodError) {
         // Convert Zod errors to a more usable format
         const formattedErrors: Partial<Record<keyof LoginFormValues, string>> = {};
-        error.errors.forEach((err) => {
+        error.issues.forEach((err) => {
           if (err.path) {
             formattedErrors[err.path[0] as keyof LoginFormValues] = err.message;
           }
@@ -145,7 +154,7 @@ const LoginPage = () => {
         
         <div className="mt-6 text-center">
           <p className="text-sm text-gray-600">
-            Don't have an account?{' '}
+            Don&#39;t have an account?{' '}
             <Link href="/sign-up" className="font-medium text-blue-600 hover:text-blue-500">
               Sign up
             </Link>
