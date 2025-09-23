@@ -57,7 +57,7 @@ const LoginPage = () => {
         localStorage.setItem('refresh_token', data.refresh_token);
         
         // Redirect to dashboard or home
-        router.push('/profile');
+        router.push('/user/profile');
       } catch (error) {
         setGeneralError(error instanceof Error ? error.message : 'An error occurred during login');
       } finally {
@@ -85,6 +85,14 @@ const LoginPage = () => {
     if (accessToken) {
       // User is already logged in, redirect to profile page
       router.push('/profile');
+    }
+  }, [router]);
+
+  useEffect(() => {
+    const token = localStorage.getItem('access_token');
+    if (!token) {
+      router.push('/auth/sign-in');
+      return;
     }
   }, [router]);
 
@@ -145,7 +153,7 @@ const LoginPage = () => {
               </label>
             </div>
             
-            <Link href="/forgot-password" className="text-sm font-medium text-blue-600 hover:text-blue-500">
+            <Link href="/auth/forgot-password" className="text-sm font-medium text-blue-600 hover:text-blue-500">
               Forgot your password?
             </Link>
           </div>
@@ -164,7 +172,7 @@ const LoginPage = () => {
         <div className="mt-6 text-center">
           <p className="text-sm text-gray-600">
             Don&#39;t have an account?{' '}
-            <Link href="/sign-up" className="font-medium text-blue-600 hover:text-blue-500">
+            <Link href="/auth/sign-up" className="font-medium text-blue-600 hover:text-blue-500">
               Sign up
             </Link>
           </p>

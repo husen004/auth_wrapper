@@ -20,7 +20,6 @@ const RegisterPage = () => {
   const [loading, setLoading] = useState<boolean>(false);
   const [generalError, setGeneralError] = useState<string | null>(null);
 
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrors({});
@@ -80,7 +79,7 @@ const RegisterPage = () => {
         localStorage.setItem('refresh_token', data.refresh_token);
 
         // Now redirect to profile page
-        router.push("/profile");
+        router.push("/user/profile");
       } catch (error) {
         setGeneralError(
           error instanceof Error
@@ -290,7 +289,7 @@ const RegisterPage = () => {
           <p className="text-sm text-gray-600">
             Already have an account?{" "}
             <Link
-              href="/sign-in"
+              href="/auth/sign-in"
               className="font-medium text-blue-600 hover:text-blue-500"
             >
               Sign in
