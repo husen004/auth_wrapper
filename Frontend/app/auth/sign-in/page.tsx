@@ -84,15 +84,7 @@ const LoginPage = () => {
     console.log("Access Token:", accessToken); 
     if (accessToken) {
       // User is already logged in, redirect to profile page
-      router.push('/profile');
-    }
-  }, [router]);
-
-  useEffect(() => {
-    const token = localStorage.getItem('access_token');
-    if (!token) {
-      router.push('/auth/sign-in');
-      return;
+      router.push('/user/profile');
     }
   }, [router]);
 

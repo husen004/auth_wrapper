@@ -59,6 +59,16 @@ const ProfilePage = () => {
     router.push('/sign-in');
   };
 
+  useEffect(() => {
+      const accessToken = localStorage.getItem('access_token');
+      console.log("Access Token:", accessToken); 
+      if (!accessToken) {
+        // User is already logged in, redirect to profile page
+        router.push('/auth/sign-in');
+      }
+    }, [router]);
+  
+
   if (loading) {
     return (
       <div className="flex justify-center items-center min-h-[80vh]">

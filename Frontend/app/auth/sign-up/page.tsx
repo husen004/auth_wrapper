@@ -113,7 +113,7 @@ const RegisterPage = () => {
     console.log("Access Token:", accessToken); 
     if (accessToken) {
       // User is already logged in, redirect to profile page
-      router.push('/profile');
+      router.push('/user/profile');
     }
   }, [router]);
 

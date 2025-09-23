@@ -6,9 +6,9 @@ const Navbar: React.FC = () => (
     <div className="container mx-auto flex items-center justify-between py-3 px-4">
       <Link href="/" className="font-bold text-blue-600 text-xl">Auth Wrapper</Link>
       <div className="flex gap-6">
-        <Link href="/home" className="hover:text-blue-600">Home</Link>
-        <Link href="/features" className="hover:text-blue-600">Features</Link>
-        <Link href="/docs" className="hover:text-blue-600">Docs</Link>
+        <Link href="/content/home" className="hover:text-blue-600">Home</Link>
+        <Link href="/content/features" className="hover:text-blue-600">Features</Link>
+        <Link href="/content/docs" className="hover:text-blue-600">Docs</Link>
       </div>
       <div className="flex gap-2">
         <Link href="/auth/sign-in" className="px-4 py-2 rounded border border-blue-600 text-blue-600 hover:bg-blue-50">Login</Link>
