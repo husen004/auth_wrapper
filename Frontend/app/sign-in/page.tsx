@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { loginSchema, LoginFormValues } from "@/lib/validation";
@@ -78,6 +78,15 @@ const LoginPage = () => {
       }
     }
   };
+
+  useEffect(() => {
+    const accessToken = localStorage.getItem('access_token');
+    console.log("Access Token:", accessToken); 
+    if (accessToken) {
+      // User is already logged in, redirect to profile page
+      router.push('/profile');
+    }
+  }, [router]);
 
   return (
     <div className="flex justify-center items-center min-h-[80vh] px-4">

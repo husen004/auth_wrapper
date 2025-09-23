@@ -245,7 +245,10 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 	err := db.QueryRow("SELECT password FROM users WHERE username = $1", creds.Username).Scan(&storedPwd)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			http.Error(w, "Invalid credentials", http.StatusUnauthorized)
+			// When user not found:
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			json.NewEncoder(w).Encode(map[string]string{"message": "User not found"})
 			return
 		}
 		log.Printf("Database error during login: %v", err)
@@ -255,7 +258,10 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Verify password
 	if bcrypt.CompareHashAndPassword([]byte(storedPwd), []byte(creds.Password)) != nil {
-		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
+		// When password doesn't match:
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]string{"message": "Incorrect password"})
 		return
 	}
 
