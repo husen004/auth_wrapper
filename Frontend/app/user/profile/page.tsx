@@ -67,7 +67,6 @@ const ProfilePage = () => {
         router.push('/auth/sign-in');
       }
     }, [router]);
-  
 
   if (loading) {
     return (
