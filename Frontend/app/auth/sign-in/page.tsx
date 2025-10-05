@@ -1,81 +1,71 @@
 'use client'
 
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { loginSchema, LoginFormValues } from "@/lib/validation";
-import { ZodError } from "zod";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
 
 const LoginPage = () => {
   const router = useRouter();
-  const [email, setEmail] = useState<string>("");
-  const [password, setPassword] = useState<string>("");
-  const [errors, setErrors] = useState<Partial<Record<keyof LoginFormValues, string>>>({});
-  const [loading, setLoading] = useState<boolean>(false);
   const [generalError, setGeneralError] = useState<string | null>(null);
+  const [loading, setLoading] = useState<boolean>(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setErrors({});
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+  } = useForm<LoginFormValues>({
+    resolver: zodResolver(loginSchema),
+    defaultValues: {
+      email: "",
+      password: "",
+    },
+  });
+
+  const onSubmit = async (data: LoginFormValues) => {
     setGeneralError(null);
 
     try {
-      // Validate form data with Zod
-      loginSchema.parse({ email, password });
-      
-      // If validation passes, show loading state
+      // Show loading state
       setLoading(true);
 
-      // Here you would call your API
-      try {
-        const response = await fetch('http://localhost:8080/api/auth/login', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ username: email, password }),
-        });
+      // Call login API
+      const response = await fetch('http://localhost:8080/api/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ username: data.email, password: data.password }),
+      });
 
-        if (!response.ok) {
-          const contentType = response.headers.get('content-type');
-          let errorMessage;
-          
-          if (contentType && contentType.includes('application/json')) {
-            const errorData = await response.json();
-            errorMessage = errorData.message || 'Login failed';
-          } else {
-            errorMessage = await response.text();
-          }
-          
-          throw new Error(errorMessage);
+      if (!response.ok) {
+        const contentType = response.headers.get('content-type');
+        let errorMessage;
+        
+        if (contentType && contentType.includes('application/json')) {
+          const errorData = await response.json();
+          errorMessage = errorData.message || 'Login failed';
+        } else {
+          errorMessage = await response.text();
         }
+        
+        throw new Error(errorMessage);
+      }
 
-        const data = await response.json();
-        
-        // Store tokens in localStorage
-        localStorage.setItem('access_token', data.access_token);
-        localStorage.setItem('refresh_token', data.refresh_token);
-        
-        // Redirect to dashboard or home
-        router.push('/user/profile');
-      } catch (error) {
-        setGeneralError(error instanceof Error ? error.message : 'An error occurred during login');
-      } finally {
-        setLoading(false);
-      }
+      const responseData = await response.json();
+      
+      // Store tokens in localStorage
+      localStorage.setItem('access_token', responseData.access_token);
+      localStorage.setItem('refresh_token', responseData.refresh_token);
+      
+      // Redirect to profile page
+      router.push('/user/profile');
     } catch (error) {
-      if (error instanceof ZodError) {
-        // Convert Zod errors to a more usable format
-        const formattedErrors: Partial<Record<keyof LoginFormValues, string>> = {};
-        error.issues.forEach((err) => {
-          if (err.path) {
-            formattedErrors[err.path[0] as keyof LoginFormValues] = err.message;
-          }
-        });
-        setErrors(formattedErrors);
-      } else {
-        setGeneralError('An unexpected error occurred');
-      }
+      setGeneralError(error instanceof Error ? error.message : 'An error occurred during login');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -99,21 +89,21 @@ const LoginPage = () => {
           </div>
         )}
         
-        <form onSubmit={handleSubmit} className="space-y-6">
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
           <div>
             <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
               Email address
             </label>
             <input
               id="email"
-              name="email"
+              {...register("email")}
               type="email"
               autoComplete="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
               className={`w-full px-3 py-2 border ${errors.email ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500`}
             />
-            {errors.email && <p className="mt-1 text-sm text-red-600">{errors.email}</p>}
+            {errors.email && (
+              <p className="mt-1 text-sm text-red-600">{errors.email.message}</p>
+            )}
           </div>
           
           <div>
@@ -122,14 +112,14 @@ const LoginPage = () => {
             </label>
             <input
               id="password"
-              name="password"
+              {...register("password")}
               type="password"
               autoComplete="current-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
               className={`w-full px-3 py-2 border ${errors.password ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500`}
             />
-            {errors.password && <p className="mt-1 text-sm text-red-600">{errors.password}</p>}
+            {errors.password && (
+              <p className="mt-1 text-sm text-red-600">{errors.password.message}</p>
+            )}
           </div>
           
           <div className="flex items-center justify-between">

@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation'
 
 interface UserData {
   username: string;
-  // Add other user fields your backend returns
 }
 
 const ProfilePage = () => {
@@ -16,10 +15,9 @@ const ProfilePage = () => {
 
   useEffect(() => {
     const fetchUserData = async () => {
-      // Check if user is authenticated
       const token = localStorage.getItem('access_token');
       if (!token) {
-        router.push('/sign-in');
+        router.push('/auth/sign-in');
         return;
       }
 
@@ -33,7 +31,6 @@ const ProfilePage = () => {
 
         if (!response.ok) {
           if (response.status === 401) {
-            // Token expired or invalid
             localStorage.removeItem('access_token');
             router.push('/sign-in');
             return;
@@ -63,7 +60,6 @@ const ProfilePage = () => {
       const accessToken = localStorage.getItem('access_token');
       console.log("Access Token:", accessToken); 
       if (!accessToken) {
-        // User is already logged in, redirect to profile page
         router.push('/auth/sign-in');
       }
     }, [router]);
@@ -96,7 +92,6 @@ const ProfilePage = () => {
             <div className="border-b pb-4">
               <h2 className="text-lg font-medium text-gray-900">Account Information</h2>
               <p className="mt-1 text-sm text-gray-600">Email: {userData.username}</p>
-              {/* Add more user data fields here as needed */}
             </div>
             
             <div className="pt-4">
