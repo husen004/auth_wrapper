@@ -13,10 +13,8 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/mux"
 	"github.com/joho/godotenv"
-	_ "github.com/lib/pq" // PostgreSQL driver
+	_ "github.com/lib/pq"
 	"golang.org/x/crypto/bcrypt"
-
-	"path/to/your/project/internal/api/posts"
 )
 
 var jwtSecret []byte
@@ -368,10 +366,6 @@ func main() {
 	router.HandleFunc("/api/auth/login", LoginHandler).Methods("POST")
 	router.HandleFunc("/api/auth/refresh", RefreshHandler).Methods("POST")
 	router.HandleFunc("/api/auth/me", AuthMiddleware(MeHandler)).Methods("GET")
-
-	// Setup posts table & register post routes
-	posts.SetupPostsTable(db)
-	posts.RegisterRoutes(router, db, AuthMiddleware)
 
 	// Add CORS middleware
 	handler := corsMiddleware(http.Handler(router))

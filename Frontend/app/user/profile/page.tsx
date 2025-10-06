@@ -53,7 +53,7 @@ const ProfilePage = () => {
   const handleLogout = () => {
     localStorage.removeItem('access_token');
     localStorage.removeItem('refresh_token');
-    router.push('/sign-in');
+    router.push('/auth/sign-in');
   };
 
   useEffect(() => {
