@@ -16,11 +16,10 @@ type Post struct {
 	Title     string `json:"title"`
 	Content   string `json:"content"`
 	UserID    int    `json:"user_id"`
-	Username  string `json:"username,omitempty"` // For GET responses
+	Username  string `json:"username,omitempty"`
 	CreatedAt string `json:"created_at"`
 }
 
-// SetupPostsTable creates the posts table if it doesn't exist
 func SetupPostsTable(db *sql.DB) error {
 	_, err := db.Exec(`
         CREATE TABLE IF NOT EXISTS posts (
