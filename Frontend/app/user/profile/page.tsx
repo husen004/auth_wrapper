@@ -84,8 +84,32 @@ const ProfilePage = () => {
 
   return (
     <div className="flex justify-center items-center min-h-[80vh] px-4">
-      <div className="bg-white p-8 rounded-lg shadow-md w-full max-w-md">
+      <div className="bg-white p-8 rounded-3xl shadow-xl w-full max-w-md">
         <h1 className="text-2xl font-bold mb-6 text-center">User Profile</h1>
+
+        <div className="space-y-4">
+          <button 
+            onClick={() => router.push('/posts')} 
+            className="w-full bg-gray-200 hover:bg-gray-300 text-gray-800 py-2 px-4 rounded-md"
+          >
+            Browse All Posts
+          </button>
+          
+          <button 
+            onClick={() => router.push('/posts/my-posts')} 
+            className="w-full bg-blue-200 hover:bg-blue-300 text-blue-800 py-2 px-4 rounded-md"
+          >
+            My Posts
+          </button>
+          
+          {/* Create new post */}
+          <button 
+            onClick={() => router.push('/posts/create')} 
+            className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-md"
+          >
+            Create New Post
+          </button>
+        </div>
         
         {userData && (
           <div className="space-y-4">
@@ -97,7 +121,7 @@ const ProfilePage = () => {
             <div className="pt-4">
               <button
                 onClick={handleLogout}
-                className="w-full bg-red-600 hover:bg-red-700 text-white py-2 px-4 rounded-md transition duration-150 ease-in-out"
+                className="cursor-pointer w-full bg-red-600 hover:bg-red-700 text-white py-2 px-4 rounded-md transition duration-150 ease-in-out"
               >
                 Logout
               </button>
