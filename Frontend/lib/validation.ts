@@ -41,4 +41,9 @@ export const registerSchema = z.object({
   path: ["confirmPassword"],
 });
 
+export const postSchema = z.object({
+  title: z.string().min(1, 'Title is required').max(200, 'Title cannot exceed 200 characters'),
+  content: z.string().min(1, 'Content is required'),
+})
+
 export type RegisterFormValues = z.infer<typeof registerSchema>;
