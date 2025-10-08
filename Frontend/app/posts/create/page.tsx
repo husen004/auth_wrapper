@@ -16,7 +16,6 @@ export default function CreatePostPage() {
   const [loading, setLoading] = useState(false)
   const [generalError, setGeneralError] = useState<string | null>(null)
 
-  // Check if user is authenticated
   useEffect(() => {
     const token = localStorage.getItem('access_token')
     if (!token) {

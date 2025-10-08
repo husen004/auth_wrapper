@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import React, { ReactNode } from "react";
 import Navbar from "../components/Navbar";
+import { AuthProvider } from "@/context/AuthContext";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -22,20 +23,22 @@ export const metadata: Metadata = {
 export default function RootLayout({
   children,
 }: Readonly<{
-  children: React.ReactNode;
+  children: ReactNode;
 }>) {
   return (
     <html lang="en">
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <div className="flex flex-col bg-slate-50">
-          <Navbar />
-          <main className="min-h-[100vh] flex-1 container mx-auto">{children}</main>
-          <footer className="bg-white border-t py-4 text-center text-gray-500">
-            © {new Date().getFullYear()} Auth Wrapper. All rights reserved.
-          </footer>
-        </div>
+        <AuthProvider>
+          <div className="flex flex-col bg-slate-50">
+            <Navbar />
+            <main className="min-h-[100vh] flex-1 container mx-auto">{children}</main>
+            <footer className="bg-white border-t py-4 text-center text-gray-500">
+              © {new Date().getFullYear()} Auth Wrapper. All rights reserved.
+            </footer>
+          </div>
+        </AuthProvider>
       </body>
     </html>
   );
