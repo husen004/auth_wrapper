@@ -1,17 +1,5 @@
-'use client'
-
-import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-
-interface Post {
-  id: number
-  title: string
-  content: string
-  user_id: number
-  username?: string
-  created_at: string
-}
+import PostsList from '@/components/PostList'
 
 export default function PostsPage() {
   
@@ -26,6 +14,8 @@ export default function PostsPage() {
           Create New Post
         </Link>
       </div>
+
+      <PostsList />
 
       
     </div>
