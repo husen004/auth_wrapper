@@ -6,6 +6,7 @@ import Link from "next/link";
 import { loginSchema, LoginFormValues } from "@/lib/validation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { login } from '../../../utils/auth';
 
 const LoginPage = () => {
   const router = useRouter();
@@ -56,9 +57,7 @@ const LoginPage = () => {
 
       const responseData = await response.json();
       
-      // Store tokens in localStorage
-      localStorage.setItem('access_token', responseData.access_token);
-      localStorage.setItem('refresh_token', responseData.refresh_token);
+      login(responseData.access_token, responseData.refresh_token);
       
       // Redirect to profile page
       router.push('/user/profile');

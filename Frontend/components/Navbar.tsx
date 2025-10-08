@@ -3,9 +3,17 @@
 import React from "react";
 import Link from "next/link";
 import { useAuth } from "@/hooks/useAuth";
+import { useRouter } from 'next/navigation';
+import { logout } from '../utils/auth';
 
 const Navbar: React.FC = () => {
   const { isAuthenticated } = useAuth();
+  const router = useRouter();
+  
+  const handleLogout = () => {
+    logout();
+    router.push('/auth/sign-in');
+  };
   
   return (
     <nav className="w-full bg-white shadow sticky top-0 z-50">
@@ -19,8 +27,18 @@ const Navbar: React.FC = () => {
         </div>
         {isAuthenticated ? (
           <div className="flex gap-2">
-            <Link href="/user/profile" className="px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700">Profile</Link>
-            <Link href="/posts/my-posts" className="px-4 py-2 rounded border border-blue-600 text-blue-600 hover:bg-blue-50">My Posts</Link>
+            <Link href="/user/profile" className="px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700">
+              Profile
+            </Link>
+            <Link href="/posts/my-posts" className="px-4 py-2 rounded border border-blue-600 text-blue-600 hover:bg-blue-50">
+              My Posts
+            </Link>
+            <button 
+              onClick={handleLogout}
+              className="px-4 py-2 rounded border border-red-600 text-red-600 hover:bg-red-50"
+            >
+              Logout
+            </button>
           </div>
         ) : (
           <div className="flex gap-2">
