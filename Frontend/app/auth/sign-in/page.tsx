@@ -29,10 +29,8 @@ const LoginPage = () => {
     setGeneralError(null);
 
     try {
-      // Show loading state
       setLoading(true);
 
-      // Call login API
       const response = await fetch('http://localhost:8080/api/auth/login', {
         method: 'POST',
         headers: {
@@ -59,7 +57,6 @@ const LoginPage = () => {
       
       login(responseData.access_token, responseData.refresh_token);
       
-      // Redirect to profile page
       router.push('/user/profile');
     } catch (error) {
       setGeneralError(error instanceof Error ? error.message : 'An error occurred during login');
@@ -72,7 +69,6 @@ const LoginPage = () => {
     const accessToken = localStorage.getItem('access_token');
     console.log("Access Token:", accessToken); 
     if (accessToken) {
-      // User is already logged in, redirect to profile page
       router.push('/user/profile');
     }
   }, [router]);
