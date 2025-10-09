@@ -6,6 +6,7 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import Link from 'next/link'
+import { Post } from '@/types'
 
 // Define the post schema for form validation
 const postSchema = z.object({
@@ -14,15 +15,6 @@ const postSchema = z.object({
 })
 
 type PostFormValues = z.infer<typeof postSchema>
-
-interface Post {
-  id: number
-  title: string
-  content: string
-  user_id: number
-  username?: string
-  created_at: string
-}
 
 export default function EditPostPage({ params }: { params: { id: string } }) {
   const router = useRouter()

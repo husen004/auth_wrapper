@@ -3,15 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-
-interface Post {
-  id: number
-  title: string
-  content: string
-  user_id: number
-  username?: string
-  created_at: string
-}
+import { Post } from '@/types'
 
 export default function MyPostsPage() {
   const router = useRouter()

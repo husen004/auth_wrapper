@@ -3,15 +3,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-
-interface Post {
-  id: number
-  title: string
-  content: string
-  user_id: number
-  username?: string
-  created_at: string
-}
+import { Post } from '@/types'
 
 interface PostListProps {
   endpoint?: string // Custom endpoint (default: /api/posts)

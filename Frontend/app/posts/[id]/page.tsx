@@ -4,16 +4,10 @@ import React, { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useAuth } from '@/hooks/useAuth' // Make sure you have this hook
+import { Post } from '@/types'
 
 // Post interface - should match your backend model
-interface Post {
-  id: number
-  title: string
-  content: string
-  user_id: number
-  username?: string
-  created_at: string
-}
+
 
 export default function PostPage({ params }: { params: { id: string } }) {
   const router = useRouter()
